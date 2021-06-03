@@ -1,0 +1,16 @@
+File Name: Manihot_esculenta_genomic_refseq.fna.gz
+Organism Name: Manihot_esculenta
+Database: NCBI refseq
+URL: ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/659/605/GCF_001659605.1_Manihot_esculenta_v6/GCF_001659605.1_Manihot_esculenta_v6_genomic.fna.gz
+Download_Date: Thu May 27 16:55:15 2021
+refseq_category: representative genome
+assembly_accession: GCF_001659605.1
+bioproject: PRJNA394209
+biosample: SAMN04116956
+taxid: 3983
+infraspecific_name: cultivar=AM560-2
+version_status: latest
+release_type: Major
+genome_rep: Full
+seq_rel_date: 2016-06-10
+submitter: DOE-Joint Genome Institute

@@ -45,5 +45,7 @@ ref/genome/
 
 # File type
 *.fastq
-
+*.fna
+*.zip
+*.html
 

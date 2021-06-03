@@ -12,34 +12,34 @@ output:
     number_sections: true
     theme: lumen
 params:
-  SRA: PRJNA227109
+  SRA: PRJNA140107
   sratoolkit: "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump"
   star: "/Users/raffaella/Desktop/bioutils/STAR-2.7.9a/bin/MacOSX_x86_64/STAR"
   bbtools: "/ME4/massimo/software/bbmap/"
-  trinity: ""
+  trinity: "/usr/share/trinity291/Trinity"
+  fastqc: "~/FastQC/fastqc"
 ---
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
+# LOAD LIBRARIES
 library(fs)
 library(tidyverse)
-library(doParallel)
 library(DT)
 library(biomartr)
 library(here)
+
+# SET Working Directory
 setwd(here())
 
 
-# Prepare for parallel runs
-cl <- makeCluster(2)
-registerDoParallel(cl)
-
 # params <- NULL
-# params$SRA <- "PRJNA227109"
+# params$SRA <- "PRJNA140107"
 # params$sratoolkit <-  "/home/massimo/sratoolkit.2.9.6-1-ubuntu64/bin/fasterq-dump"
-# params$sratoolkit <-  "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump" 
+# params$sratoolkit <-  "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump"
 # params$bbtools <-  "/ME4/massimo/software/bbmap/"
 # params$star <- "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
 # params$trinity <- "/usr/share/trinity291/Trinity"
+# params$fastqc <- "~/FastQC/fastqc"  
 ```
 
 # Download needed data
@@ -65,7 +65,7 @@ if(file_exists("_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna.gz"
 datatable(suME)
 
 # Uncompress cassava genome
-system("gunzip /ME4/massimo/projects/P003_Cassava_analysis/_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna.gz")
+system("gunzip _ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna.gz")
 
 # # index genome with STAR
 # system(paste0(params$star,
@@ -81,6 +81,11 @@ Download from NCBI SRA the run of interest.
 ### Table of SRA matadata
 
 ```{r warning=FALSE, message=FALSE}
+# Create SRA folder if it does not exist
+if(!file_exists(paste0("mkdir -p data/", params$SRA))){
+  system(paste0("mkdir -p data/", params$SRA))
+}
+
 # Build the link to download metadata file
 system(paste(
   "wget 'http://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?save=efetch&rettype=runinfo&db=sra&term=", params$SRA,
@@ -95,11 +100,6 @@ datatable(SRA_meta)
 ### List of downloaded SRA
 
 ```{r warning=FALSE, message=FALSE}
-# Create SRA folder if it does not exist
-if(!file_exists(paste0("mkdir -p data/", params$SRA))){
-  system(paste0("mkdir -p data/", params$SRA))
-}
-
 # Check the presence of SRA already downloaded
 f <- tibble(system = str_remove(basename(dir_ls(paste0("data/", params$SRA), regex = "fastq$")), 
                 ".fastq.gz"))
@@ -131,7 +131,21 @@ if(length(missingPE) != 0){
 datatable(tibble(system = dir_ls(paste0("./data/", params$SRA), regex = "fastq$")))
 ```
 
-### reads alignment
+# Quality control
+
+```{r warning=FALSE, message=FALSE}
+# Read file path
+f <- dir_ls(paste0("data/", params$SRA), regex = "fastq$")
+
+for (i in f){
+    system(paste0(params$fastqc, " ", i, " -o data/", params$SRA,
+                  "/ -t 6"))
+}
+```
+
+
+
+# Remove Cassava genome
 
 ```{r warning=FALSE, message=FALSE}
 # Read file path
