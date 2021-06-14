@@ -22,21 +22,14 @@ params:
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
 library(fs)
 library(tidyverse)
-library(doParallel)
 library(DT)
 library(biomartr)
 library(here)
 setwd(here())
 
-
-# Prepare for parallel runs
-cl <- makeCluster(2)
-registerDoParallel(cl)
-
 # params <- NULL
-# params$SRA <- "PRJNA227109"
+# params$SRA <- "PRJNA297492"
 # params$sratoolkit <-  "/home/massimo/sratoolkit.2.9.6-1-ubuntu64/bin/fasterq-dump"
-# params$sratoolkit <-  "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump" 
 # params$bbtools <-  "/ME4/massimo/software/bbmap/"
 # params$star <- "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
 # params$trinity <- "/usr/share/trinity291/Trinity"
@@ -51,7 +44,7 @@ _Manihot esculenta_ genome has been downloaded from NCBI RefSeq dataset.
 Here all the information about the downloaded genome: 
 
 ```{r warning=FALSE, message=FALSE}
-if(file_exists("_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna.gz")){
+if(file_exists("_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna")){
   suME <- read_tsv("_ncbi_downloads/genomes/doc_Manihot_esculenta_db_refseq.txt") %>%
     separate(`File Name: Manihot_esculenta_genomic_refseq.fna.gz`, into = c("Data", "Info"), sep = ": ")
 } else {
@@ -61,18 +54,8 @@ if(file_exists("_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna.gz"
     separate(`File Name: Manihot_esculenta_genomic_refseq.fna.gz`, into = c("Data", "Info"), sep = ": ")
 }
 
-
 datatable(suME)
 
-# Uncompress cassava genome
-system("gunzip /ME4/massimo/projects/P003_Cassava_analysis/_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna.gz")
-
-# # index genome with STAR
-# system(paste0(params$star,
-#               " --runThreadN 20 --runMode genomeGenerate --genomeDir ",
-#               getwd(), "/_ncbi_downloads/manihot_esculenta_index/ --genomeFastaFiles ",
-#               getwd(), "/_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna --genomeSAindexNbases 13", sep = ""))
-# 
 ```
 
 
