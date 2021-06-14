@@ -16,7 +16,7 @@ params:
   sratoolkit: "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump"
   star: "/Users/raffaella/Desktop/bioutils/STAR-2.7.9a/bin/MacOSX_x86_64/STAR"
   bbtools: "/ME4/massimo/software/bbmap/"
-  trinity: ""
+  trinity: "/ME4/massimo/software/trinityrnaseq-v2.12.0/Trinity"
 ---
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
@@ -32,7 +32,7 @@ setwd(here())
 # params$sratoolkit <-  "/home/massimo/sratoolkit.2.9.6-1-ubuntu64/bin/fasterq-dump"
 # params$bbtools <-  "/ME4/massimo/software/bbmap/"
 # params$star <- "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
-# params$trinity <- "/usr/share/trinity291/Trinity"
+# params$trinity <- "/ME4/massimo/software/trinityrnaseq-v2.12.0/Trinity"
 ```
 
 # Download needed data
@@ -64,10 +64,10 @@ datatable(suME)
 # Build the link to download metadata file
 system(paste(
   "wget 'http://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?save=efetch&rettype=runinfo&db=sra&term=", params$SRA,
-  "' -O ", "data/SraMetadata_", params$SRA,
+  "' -O ", "data/", params$SRA, "/SraMetadata_", params$SRA,
   sep = ""))
 
-SRA_meta <- read_csv(paste("./data/SraMetadata_", params$SRA, sep = ""))
+SRA_meta <- read_csv(paste("./data/", params$SRA, "/SraMetadata_", params$SRA, sep = ""))
 
 datatable(SRA_meta)
 ```
@@ -126,7 +126,7 @@ f <- dir_ls(paste0("data/", params$SRA), regex = "fastq$")
 
 ########################################
 # Create sketch on the original reads
-if (!file_exists(paste0("data'", params$SRA, "/preSketchOK"))){
+if (!file_exists(paste0("data/", params$SRA, "/preSketchOK"))){
     for (i in f){
         system(paste0(params$bbtools,"sendsketch.sh in=", i,
                       " out=", str_replace(i, "fastq", "sketchOriginal"), ".tsv reads=1000000 ",
@@ -136,6 +136,8 @@ if (!file_exists(paste0("data'", params$SRA, "/preSketchOK"))){
     }
 }
 
+file_create(paste0("data/", params$SRA, "/preSketchOK"))
+
 # Parse output
 so <- map_df(dir_ls(paste0("data/", params$SRA), regex = "sketchOriginal"),
           read_delim, delim = "\t", .id = "SRA", skip = 2) %>% 
@@ -144,7 +146,6 @@ so <- map_df(dir_ls(paste0("data/", params$SRA), regex = "sketchOriginal"),
     group_by(SRA) %>%
     mutate(N = row_number())
 
-file_create(paste0("data/", params$SRA, "/preSketchOK"))
 
 datatable(so,
 	rownames = FALSE,
@@ -178,29 +179,48 @@ datatable(so,
 ```{r warning=FALSE, message=FALSE}
 ########################################
 # Remove Cassava genome
-if (!file_exists(paste0("data'", params$SRA, "/genomeRemovalOK"))){
-    for (ii in f){
-        system(paste0(params$bbtools, "bbmap.sh ref=_ncbi_downloads/genomes/doc_Manihot_esculenta_db_refseq_summary_statistics.tsv", 
-                  " in=", ii, 
-                  " outu=", ii, "_unmapped.fastq"))
-    }
+if (!file_exists(paste0("data/", params$SRA, "/genomeIndexOK"))){
+    # Genome index
+    system(paste0(params$star,
+                  " --runThreadN 20 --runMode genomeGenerate --genomeDir ",
+                  "_ncbi_downloads/manihot_esculenta_index/ --genomeFastaFiles ",
+                  "_ncbi_downloads/genomes/Manihot_esculenta_genomic_refseq.fna ",
+                  "--genomeSAindexNbases 13"))
 }
+file_create(paste0("data/", params$SRA, "/genomeIndexOK"))
 
-file_create(paste0("data'", params$SRA, "/genomeRemovalOK"))
+    # Genome Removal
+if (!file_exists(paste0("data/", params$SRA, "/genomeRemovalOK"))){
+    for (file in f){
+        system(paste0(params$star, " --runThreadN 30 --genomeDir ",
+              "_ncbi_downloads/manihot_esculenta_index/ --readFilesIn ",
+                file, "  --outFileNamePrefix data/", params$SRA, "/",
+                str_split(basename(file), '.fastq')[[1]][1],
+                " --outReadsUnmapped Fastx"))
+    }
+    del <- dir_ls(paste0(paste0("data/", params$SRA, "/")),
+                  regex = "SJ.out.tab$|Aligned.out.sam$|Log")
+    file_delete(del)
+}
+file_create(paste0("data/", params$SRA, "/genomeRemovalOK"))
 
 ########################################
 # Create sketch
-f <- dir_ls(paste0("data/", params$SRA), regex = "unmapped")
+f <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped")
 
-for (i in f){
-    system(paste0(params$bbtools,"sendsketch.sh in=", i,
-                  " out=", str_replace(i, "fastq$", "sketchUnmap"), ".tsv reads=1000000 ",
-                  "  minprob=0.2 samplerate=1.0 merge printname0=f ", 
-                  " records=20 overwrite=true color=false depth depth2",
-                  " unique2 volume sortbyvolume contam2=genus nt ow" ))
+if(!file_exists(paste0("data/", params$SRA, "/postSketchOK"))){
+    for (i in f){
+        system(paste0(params$bbtools,"sendsketch.sh in=", i,
+                      " out=", str_replace(i, "fastq$", "sketchUnmap"), ".tsv reads=1000000 ",
+                      "  minprob=0.2 samplerate=1.0 merge printname0=f ", 
+                      " records=20 overwrite=true color=false depth depth2",
+                      " unique2 volume printscore contam2=genus nt ow" ))
+    }
 }
 
-su <- map_df(dir_ls(paste0("data/", params$SRA), regex = "sketchUnmap"),
+file_create(paste0("data/", params$SRA, "/postSketchOK"))
+
+su <- map_df(dir_ls(paste0("data/", params$SRA), regex = "Unmapped.out.mate1.tsv$"),
           read_delim, delim = "\t", .id = "SRA", skip = 2) %>% 
     mutate(SRA = str_remove(SRA, paste0("data/", params$SRA, "/")),
            SRA = str_remove(SRA, ".sketchOriginal.tsv")) %>%
@@ -232,33 +252,84 @@ datatable(su,
 **gSeqs**:    Number of sequences used in the sketch.     
 **TaxName**:  NCBI's name for that taxID.  If there is no taxID, the sequence name will be used.     
 
-###TRINITY
+# TRINITY
+
+## Prepare sample file 
 
 ```{r warning=FALSE, message=FALSE}
 # Trinity out_file input file creation
-out_file <- paste(getwd(), "/data/",params$SRA,"_trinity_samples", sep = "") 
+out_file <- paste("data/",params$SRA,"/trinity_samples", sep = "") 
 
 # Path to files
-fileNames <- dir_ls(paste0("data/", params$SRA), regex = "unmapped")
+fileNames <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped.*\\d$")
 # write single end runs to out_file
-df <- tibble(X1 = str_remove(basename(fileNames), '.fastq'),
-       X2 = str_replace(basename(fileNames), '.fastq', '_rep1'),
-       X3 = fileNames)
+df <- tibble(X1 = SRA_meta2$ID,
+       X2 = paste0(SRA_meta2$ID, '_rep1'),
+       X3 = fileNames[grepl("_1Unmapped", basename(fileNames))],
+       X4 = fileNames[grepl("_2Unmapped", basename(fileNames))])
 
 
 write.table(df, out_file, append = FALSE, sep = "\t", dec = ".",
             row.names = FALSE, col.names = FALSE, quote = FALSE)
 ```
 
-
+## Run Assembly
 
 ```{r warning=FALSE, message=FALSE}
-
 # trinity command execution 
+if(!file_exists(paste0("data/", params$SRA, "/trinityOK"))){
+    system(paste0(params$trinity, " --seqType fq --samples_file ", out_file,
+                  " --CPU 20 --trimmomatic --no_normalize_reads --full_cleanup ",
+                  " --min_contig_length 1000 --max_memory 200G --output ",
+                  " data/",params$SRA,"/trinity_out_dir" ))
+}
 
-system(paste0(params$trinity, " --seqType fq --samples_file ", out_file,
-              " --CPU 40 --trimmomatic --no_normalize_reads --full_cleanup ",
-              " --min_contig_length 1000 --max_memory 200G --output ",
-              getwd(),"/data/",params$SRA,"/trinity_out_dir" ))
+file_create(paste0("data/", params$SRA, "/trinityOK"))
 
+# Create summary table
+or <- dir_ls(paste0("data/", params$SRA), regex = "fastq$")
+ur <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped.out.mate1$")
+tr <- dir_ls(paste0("data/", params$SRA), regex = "trinity_out_dir.Trinity.fasta$")
+tr2 <- as.numeric(system(paste0("grep -c '>' ", tr), intern = TRUE))
+
+or2 <- vector()
+for (i in seq_along(or)){
+    or2[i] <- as.numeric(system(paste0("grep -c '@' ", or[i]),
+                                intern = TRUE))
+}
+
+ur2 <- vectur()
+for (i in seq_along(ur)){
+    ur2[i] <- as.numeric(system(paste0("grep -c '@' ", ur[i]),
+                                intern = TRUE))
+}
+
+assDF <- tibble(Reads = str_remove(or, paste0("data/", params$SRA, "/")),
+                Original = or2,
+                Unmapped = ur2) %>%
+    mutate(Reads = str_remove(Reads, ".fastq"),
+           Reduced = (1 - Unmapped / Original) * 100)
+```
+
+Unmapped reads led to the identification of `r tr2` contigs longer than 1000bp.
+
+# Produce unicontigs
+
+```{r warning=FALSE, message=FALSE}
+if(!file_exists(paste0("data/", params$SRA, "/unicontigOK"))){
+    system(paste0("~/cd-hit-v4.8.1-2019-0228/cd-hit-est -i ", tr, " -o ", 
+                  paste0("data/", params$SRA), "/uniContig.fasta", " -c 0.9 -M 120000 -T 30"))
+}
+
+file_create(paste0("data/", params$SRA, "/unicontigOK"))
+```
+
+# Blast against NCBInr
+
+```{r warning=FALSE, message=FALSE}
+system(paste0("~/diamond blastx -p20 -d /ME4/massimo/DB/nr -q ",
+              " data/", params$SRA, "/uniContig.fasta",
+              " -o data/", params$SRA, "/uniContig.tab",
+              " -f 6 qseqid qlen sseqid stitle slen pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovhsp scovhsp",
+              " -k 5 -e 0.0000000001 --unal 0 --very-sensitive"))
 ```
