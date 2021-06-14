@@ -58,9 +58,6 @@ datatable(suME)
 
 ```
 
-
-Download from NCBI SRA the run of interest.
-
 ### Table of SRA matadata
 
 ```{r warning=FALSE, message=FALSE}
@@ -84,37 +81,44 @@ if(!file_exists(paste0("mkdir -p data/", params$SRA))){
 }
 
 # Check the presence of SRA already downloaded
-f <- tibble(system = str_remove(basename(dir_ls(paste0("data/", params$SRA), regex = "fastq$")), 
-                ".fastq.gz"))
+f <- tibble(system = str_remove(basename(dir_ls(paste0("data/", params$SRA), 
+                                                regex = "fastq$")), ".fastq.gz"))
 
-# Create factor vectors for missing Single and Pair end SRA
-missingSE <- SRA_meta$Run[(!(SRA_meta$Run %in% f)) & SRA_meta$LibraryLayout == "SINGLE" ]
-missingPE <- SRA_meta$Run[(!(SRA_meta$Run %in% f)) & SRA_meta$LibraryLayout == "PAIR" ]
-  
 
-# Download the missingSE SRA
-if(length(missingSE) != 0){
-  for (i in seq_along(missingSE)){
-    system(paste0(
-      params$sratoolkit, " -e 30 -p ", missingSE[i],
-      " -O data/", params$SRA))
-  }
+SRA_meta2 <- SRA_meta %>%
+    mutate(ID = Run) %>%
+    group_by(ID) %>%
+    nest()
+
+# Function to dowload SRA Run
+downFastq <- function(x){
+    if(x$LibraryLayout == "SINGLE"){
+        system(paste0(
+          params$sratoolkit, " -e 30 -p ", x$Run,
+          " -O data/", params$SRA))
+    }
+    if(x$LibraryLayout == "PAIRED"){
+        system(paste0(
+          params$sratoolkit, " -e 30 -p --split-files ", x$Run,
+          " -O data/", params$SRA))
+    }
 }
 
-# Download the missingPE SRA
-if(length(missingPE) != 0){
-  for (i in seq_along(missingPE)){
-    system(paste0(
-      params$sratoolkit, " -e 30 --split-files -p ", missingPE[i],
-      " -O data/", params$SRA))
-  }
-}
-
+# Download SRA Run
+map(SRA_meta2$data, downFastq)
 
 datatable(tibble(system = dir_ls(paste0("./data/", params$SRA), regex = "fastq$")))
 ```
 
-### reads alignment
+### Reads alignment
+
+#### Pre-alignment sketch
+
+To perform sketch we used [BBTools](https://jgi.doe.gov/data-and-tools/bbtools/).
+
+BBTools is a suite of fast, multithreaded bioinformatics tools designed for analysis of DNA and RNA sequence data. BBTools can handle common sequencing file formats such as fastq, fasta, sam, scarf, fasta+qual, compressed or raw, with autodetection of quality encoding and interleaving. It is written in Java and works on any platform supporting Java, including Linux, MacOS, and Microsoft Windows and Linux; there are no dependencies other than Java (version 7 or higher). Program descriptions and options are shown when running the shell scripts with no parameters.
+
+BBTools is open source and free for unlimited use, and is used regularly by DOE JGI and other institutions around the world.
 
 ```{r warning=FALSE, message=FALSE}
 # Read file path
@@ -122,29 +126,67 @@ f <- dir_ls(paste0("data/", params$SRA), regex = "fastq$")
 
 ########################################
 # Create sketch on the original reads
-for (i in f){
-    system(paste0(params$bbtools,"sendsketch.sh in=", i,
-                  " out=", str_replace(i, "fastq", "sketchOriginal"), ".tsv reads=1000000 ",
-                  "  minprob=0.2 samplerate=1.0 merge printname0=f ", 
-                  " records=20 overwrite=true color=false depth depth2",
-                  " unique2 volume sortbyvolume contam2=genus nt ow" ))
+if (!file_exists(paste0("data'", params$SRA, "/preSketchOK"))){
+    for (i in f){
+        system(paste0(params$bbtools,"sendsketch.sh in=", i,
+                      " out=", str_replace(i, "fastq", "sketchOriginal"), ".tsv reads=1000000 ",
+                      "  minprob=0.2 samplerate=1.0 merge printname0=f ", 
+                      " records=20 overwrite=true color=false depth depth2",
+                      " unique2 volume printscore contam2=genus nt ow" ))
+    }
 }
 
 # Parse output
 so <- map_df(dir_ls(paste0("data/", params$SRA), regex = "sketchOriginal"),
-          read_delim, delim = "\t", .id = "SRA", skip = 2)
+          read_delim, delim = "\t", .id = "SRA", skip = 2) %>% 
+    mutate(SRA = str_remove(SRA, paste0("data/", params$SRA, "/")),
+           SRA = str_remove(SRA, ".sketchOriginal.tsv")) %>%
+    group_by(SRA) %>%
+    mutate(N = row_number())
 
-datatable(so)
+file_create(paste0("data/", params$SRA, "/preSketchOK"))
+
+datatable(so,
+	rownames = FALSE,
+    filter = "top",
+    extensions = 'Buttons',
+    options = list(dom = 'Brtip',
+                     buttons = c('csv', 'copy'))
 ```
+
+**Meaning of Columns**
+
+**WKID**:     Weighted Kmer IDentity, which is the kmer identity compensating for differences in size.  So, comparing human chr1 to the full human genome would yield 100% WKID but approximately 10% KID.    
+**KID**:      Kmer IDentity, equal to matches/length; this is the fraction of shared kmers.     
+**ANI**:      Average Nucleotide Identity, derived from WKID and kmer length.     
+**Complt**:   Genome completeness (percent of the reference represented in the query).  Derived from WKID and KID.     
+**Contam**:   Contamination (percent of the query that does not match this reference, but matches some other reference).     
+**Depth**:    Estimated genomic kmer coverage depth based on the average number of occurences of kmers in query sketch for those kmers matching the reference sketch.     
+**Depth2**:   Depth compensated for repeat kmers in the reference genome.     
+**Volume**:   Sum of query counts of shared kmers, equal to the number of total (rather than unique) reference kmers that occured in the query sequence, divided by 1000      (for formatting).
+**Matches**:  The number of shared kmers between query and ref.     
+**Unique**:   The number of shared kmers between query and ref, and no other ref.     
+**TaxID**:    NCBI taxonomic id, when available.     
+**gSize**:    Estimate of genomic size (number of unique kmers in the genome).  This is based on the smallest hash value in the list.  This is affected by blacklists or whitelists, entropy, and by using an assembly versus raw reads.     
+**gSeqs**:    Number of sequences used in the sketch.     
+**TaxName**:  NCBI's name for that taxID.  If there is no taxID, the sequence name will be used.     
+
+
+#### Remove Cassava genome
+
 
 ```{r warning=FALSE, message=FALSE}
 ########################################
 # Remove Cassava genome
-for (ii in f){
-    system(paste0(params$bbtools, "bbmap.sh ref=_ncbi_downloads/genomes/doc_Manihot_esculenta_db_refseq_summary_statistics.tsv", 
-              " in=", ii, 
-              " outu=", ii, "_unmapped.fastq"))
+if (!file_exists(paste0("data'", params$SRA, "/genomeRemovalOK"))){
+    for (ii in f){
+        system(paste0(params$bbtools, "bbmap.sh ref=_ncbi_downloads/genomes/doc_Manihot_esculenta_db_refseq_summary_statistics.tsv", 
+                  " in=", ii, 
+                  " outu=", ii, "_unmapped.fastq"))
+    }
 }
+
+file_create(paste0("data'", params$SRA, "/genomeRemovalOK"))
 
 ########################################
 # Create sketch
@@ -159,10 +201,36 @@ for (i in f){
 }
 
 su <- map_df(dir_ls(paste0("data/", params$SRA), regex = "sketchUnmap"),
-          read_delim, delim = "\t", .id = "SRA", skip = 2)
+          read_delim, delim = "\t", .id = "SRA", skip = 2) %>% 
+    mutate(SRA = str_remove(SRA, paste0("data/", params$SRA, "/")),
+           SRA = str_remove(SRA, ".sketchOriginal.tsv")) %>%
+    group_by(SRA) %>%
+    mutate(N = row_number())
 
-datatable(su)
+datatable(su,
+	rownames = FALSE,
+    filter = "top",
+    extensions = 'Buttons',
+    options = list(dom = 'Brtip',
+                     buttons = c('csv', 'copy'))
 ```
+
+**Meaning of Columns**
+
+**WKID**:     Weighted Kmer IDentity, which is the kmer identity compensating for differences in size.  So, comparing human chr1 to the full human genome would yield 100% WKID but approximately 10% KID.    
+**KID**:      Kmer IDentity, equal to matches/length; this is the fraction of shared kmers.     
+**ANI**:      Average Nucleotide Identity, derived from WKID and kmer length.     
+**Complt**:   Genome completeness (percent of the reference represented in the query).  Derived from WKID and KID.     
+**Contam**:   Contamination (percent of the query that does not match this reference, but matches some other reference).     
+**Depth**:    Estimated genomic kmer coverage depth based on the average number of occurences of kmers in query sketch for those kmers matching the reference sketch.     
+**Depth2**:   Depth compensated for repeat kmers in the reference genome.     
+**Volume**:   Sum of query counts of shared kmers, equal to the number of total (rather than unique) reference kmers that occured in the query sequence, divided by 1000      (for formatting).
+**Matches**:  The number of shared kmers between query and ref.     
+**Unique**:   The number of shared kmers between query and ref, and no other ref.     
+**TaxID**:    NCBI taxonomic id, when available.     
+**gSize**:    Estimate of genomic size (number of unique kmers in the genome).  This is based on the smallest hash value in the list.  This is affected by blacklists or whitelists, entropy, and by using an assembly versus raw reads.     
+**gSeqs**:    Number of sequences used in the sketch.     
+**TaxName**:  NCBI's name for that taxID.  If there is no taxID, the sequence name will be used.     
 
 ###TRINITY
 
