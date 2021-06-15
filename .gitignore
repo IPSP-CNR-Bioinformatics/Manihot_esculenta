@@ -41,7 +41,7 @@ vignettes/*.pdf
 # Data_folders(genome and SRA)
 data/
 _ncbi_downloads/
-ref/genome/
+ref/
 
 # File type
 *.fastq
