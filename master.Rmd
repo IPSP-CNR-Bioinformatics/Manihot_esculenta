@@ -12,9 +12,9 @@ output:
     number_sections: true
     theme: lumen
 params:
-  SRA: PRJNA297492
+  SRA: PRJNA658570
   sratoolkit: "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump"
-  star: "/Users/raffaella/Desktop/bioutils/STAR-2.7.9a/bin/MacOSX_x86_64/STAR"
+  star: "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
   bbtools: "/ME4/massimo/software/bbmap/"
   trinity: "/ME4/massimo/software/trinityrnaseq-v2.12.0/Trinity"
 ---
@@ -28,7 +28,7 @@ library(here)
 setwd(here())
 
 # params <- NULL
-# params$SRA <- "PRJNA297492"
+# params$SRA <- "PRJNA658570"
 # params$sratoolkit <-  "/home/massimo/sratoolkit.2.9.6-1-ubuntu64/bin/fasterq-dump"
 # params$bbtools <-  "/ME4/massimo/software/bbmap/"
 # params$star <- "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
@@ -61,6 +61,10 @@ datatable(suME)
 ### Table of SRA matadata
 
 ```{r warning=FALSE, message=FALSE}
+# Create SRA folder if it does not exist
+if(!file_exists(paste0("mkdir -p data/", params$SRA))){
+  system(paste0("mkdir -p data/", params$SRA))
+}
 # Build the link to download metadata file
 system(paste(
   "wget 'http://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?save=efetch&rettype=runinfo&db=sra&term=", params$SRA,
@@ -75,11 +79,6 @@ datatable(SRA_meta)
 ### List of downloaded SRA
 
 ```{r warning=FALSE, message=FALSE}
-# Create SRA folder if it does not exist
-if(!file_exists(paste0("mkdir -p data/", params$SRA))){
-  system(paste0("mkdir -p data/", params$SRA))
-}
-
 # Check the presence of SRA already downloaded
 f <- tibble(system = str_remove(basename(dir_ls(paste0("data/", params$SRA), 
                                                 regex = "fastq$")), ".fastq.gz"))
@@ -105,9 +104,16 @@ downFastq <- function(x){
 }
 
 # Download SRA Run
-map(SRA_meta2$data, downFastq)
+if (nrow(f) == 0 ){
+    map(SRA_meta2$data, downFastq)
+}
 
-datatable(tibble(system = dir_ls(paste0("./data/", params$SRA), regex = "fastq$")))
+datatable(tibble(system = dir_ls(paste0("data/", params$SRA), regex = "fastq$")),
+	rownames = FALSE,
+    filter = "top",
+    extensions = 'Buttons',
+    options = list(dom = 'Brtip',
+                     buttons = c('csv', 'copy')))
 ```
 
 ### Reads alignment
@@ -152,7 +158,7 @@ datatable(so,
     filter = "top",
     extensions = 'Buttons',
     options = list(dom = 'Brtip',
-                     buttons = c('csv', 'copy'))
+                     buttons = c('csv', 'copy')))
 ```
 
 **Meaning of Columns**
@@ -232,7 +238,7 @@ datatable(su,
     filter = "top",
     extensions = 'Buttons',
     options = list(dom = 'Brtip',
-                     buttons = c('csv', 'copy'))
+                     buttons = c('csv', 'copy')))
 ```
 
 **Meaning of Columns**
@@ -298,7 +304,7 @@ for (i in seq_along(or)){
                                 intern = TRUE))
 }
 
-ur2 <- vectur()
+ur2 <- vector()
 for (i in seq_along(ur)){
     ur2[i] <- as.numeric(system(paste0("grep -c '@' ", ur[i]),
                                 intern = TRUE))
@@ -309,6 +315,13 @@ assDF <- tibble(Reads = str_remove(or, paste0("data/", params$SRA, "/")),
                 Unmapped = ur2) %>%
     mutate(Reads = str_remove(Reads, ".fastq"),
            Reduced = (1 - Unmapped / Original) * 100)
+
+datatable(assDF,
+	rownames = FALSE,
+    filter = "top",
+    extensions = 'Buttons',
+    options = list(dom = 'Brtip',
+                     buttons = c('csv', 'copy')))
 ```
 
 Unmapped reads led to the identification of `r tr2` contigs longer than 1000bp.
@@ -327,9 +340,93 @@ file_create(paste0("data/", params$SRA, "/unicontigOK"))
 # Blast against NCBInr
 
 ```{r warning=FALSE, message=FALSE}
-system(paste0("~/diamond blastx -p20 -d /ME4/massimo/DB/nr -q ",
-              " data/", params$SRA, "/uniContig.fasta",
-              " -o data/", params$SRA, "/uniContig.tab",
-              " -f 6 qseqid qlen sseqid stitle slen pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovhsp scovhsp",
-              " -k 5 -e 0.0000000001 --unal 0 --very-sensitive"))
+if(!file_exists(paste0("data/", params$SRA, "/blastOK"))){
+    system(paste0("~/diamond blastx -p20 -d /ME4/massimo/DB/nr -q ",
+                  " data/", params$SRA, "/uniContig.fasta",
+                  " -o data/", params$SRA, "/uniContig.tab",
+                  " -f 6 qseqid qlen sseqid stitle slen pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovhsp scovhsp",
+                  " -k 5 -e 0.0000000001 --unal 0 --very-sensitive"))
+}
+
+file_create(paste0("data/", params$SRA, "/blastOK"))
+
 ```
+
+## Parse results
+
+```{r warning=FALSE, message=FALSE}
+########################################
+# Read data BLAST
+f <- dir_ls(paste0("data/", params$SRA), regex = "uniContig.tab$")
+df <- read_delim(f, delim = "\t", col_names = FALSE)
+names(df) <- c("qseqid", "qlen", "sseqid", "stitle", "slen", "pident", 
+               "length", "mismatch", "gapopen", "qstart", 
+               "qend", "sstart", "send", "evalue", "bitscore",
+               "qcovhsp", "scovhsp")
+
+#Transforn the blast results
+df2 <- df %>%
+    separate(stitle, into = c("Desc", "Organism"), sep = "\\[", extra = "merge") %>%
+    mutate(Organism = str_remove(Organism, "]"),
+           Desc = str_trim(str_remove(Desc, "[^ ]*")),
+           Organism = ifelse(grepl("\\[", Organism), str_extract(Organism, "(?<=\\[).+?(?=\\])"),
+                             Organism))
+
+########################################
+# Inspect the 5 blast per query
+## Function to retrieve the firt match
+ex <- function(x, n = 1){
+    x %>%
+        arrange(desc(bitscore)) %>%
+        dplyr::slice(n)
+}
+
+# Finciotn to retrieve the organism match
+org <- function(x){
+    x %>%
+        count(Organism, sort = TRUE)
+}
+
+## Store the data in a nested tibble
+df4 <- df2 %>%
+    group_by(qseqid) %>%
+    nest() 
+
+## Extract organisms
+df4o <- df4 %>%
+    mutate(sORG = map(data, ~org(.x))) %>%
+    unnest(sORG)
+
+## Extract the first match
+df5 <- df4 %>%
+    mutate(FH = map(data, ~ex(.x)))
+# saveRDS(df5, "data/EVA/NCBInrBlastParsedIntermediatResults.RDS")
+
+## Unnest the first match dataset
+df6 <- df5 %>%
+    unnest(FH)
+
+wip <- df2 %>%
+    filter(qseqid %in% (df2 %>%
+                        filter(grepl("virus|phage", Organism) | grepl("phage", Desc)) %>%
+                        pull(qseqid))) %>%
+    group_by(qseqid)
+
+library(Biostrings)
+ss <- readDNAStringSet(paste0("data/", params$SRA, "/uniContig.fasta"))
+names(ss) <- str_extract(names(ss), "[^ ]*")
+sdf <- tibble(qseqid = names(ss),
+              sequence = as.character(ss))
+
+wip <- wip %>%
+    left_join(sdf)
+
+datatable(wip,
+	rownames = FALSE,
+    filter = "top",
+    extensions = 'Buttons',
+    options = list(dom = 'Brtip',
+                     buttons = c('csv', 'copy')))
+
+```
+

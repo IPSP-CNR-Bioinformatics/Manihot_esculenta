@@ -39,8 +39,8 @@ vignettes/*.pdf
 .Renviron
 
 # Data_folders(genome and SRA)
-./data/
-./_ncbi_downloads/
+data/
+_ncbi_downloads/
 ref/genome/
 
 # File type
