@@ -12,7 +12,7 @@ output:
     number_sections: true
     theme: lumen
 params:
-  SRA: PRJNA658570
+  SRA: 658570
   sratoolkit: "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump"
   star: "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
   bbtools: "/ME4/massimo/software/bbmap/"
@@ -28,7 +28,7 @@ library(here)
 setwd(here())
 
 # params <- NULL
-# params$SRA <- "PRJNA658570"
+# params$SRA <- "658570"
 # params$sratoolkit <-  "/home/massimo/sratoolkit.2.9.6-1-ubuntu64/bin/fasterq-dump"
 # params$bbtools <-  "/ME4/massimo/software/bbmap/"
 # params$star <- "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
