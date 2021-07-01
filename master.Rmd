@@ -12,7 +12,7 @@ output:
     number_sections: true
     theme: lumen
 params:
-  SRA: PRJNA658570
+  SRA: PRJNA306864
   sratoolkit: "/Users/raffaella/Desktop/bioutils/sratoolkit.2.11.0-mac64/bin/fasterq-dump"
   star: "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
   bbtools: "/ME4/massimo/software/bbmap/"
@@ -28,11 +28,12 @@ library(here)
 setwd(here())
 
 # params <- NULL
-# params$SRA <- "PRJNA658570"
+# params$SRA <- "PRJNA306864"
 # params$sratoolkit <-  "/home/massimo/sratoolkit.2.9.6-1-ubuntu64/bin/fasterq-dump"
 # params$bbtools <-  "/ME4/massimo/software/bbmap/"
 # params$star <- "/ME4/massimo/software/STAR-2.7.8a/bin/Linux_x86_64/STAR"
 # params$trinity <- "/ME4/massimo/software/trinityrnaseq-v2.12.0/Trinity"
+# params$trinity <- "/usr/share/trinity291/Trinity"
 ```
 
 # Download needed data
@@ -157,7 +158,7 @@ datatable(so,
     filter = "top",
     extensions = 'Buttons',
     options = list(dom = 'Brtip',
-                     buttons = c('csv', 'copy'))
+                     buttons = c('csv', 'copy')))
 ```
 
 **Meaning of Columns**
@@ -209,6 +210,9 @@ if (!file_exists(paste0("data/", params$SRA, "/genomeRemovalOK"))){
 }
 file_create(paste0("data/", params$SRA, "/genomeRemovalOK"))
 
+mf <- dir_ls(paste0("data/", params$SRA, "/"), regex = "out.mate1$")
+file_move(mf, str_replace(mf, "out.mate1", "fasta"))
+
 ########################################
 # Create sketch
 f <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped")
@@ -237,7 +241,7 @@ datatable(su,
     filter = "top",
     extensions = 'Buttons',
     options = list(dom = 'Brtip',
-                     buttons = c('csv', 'copy'))
+                     buttons = c('csv', 'copy')))
 ```
 
 **Meaning of Columns**
@@ -266,12 +270,14 @@ datatable(su,
 out_file <- paste("data/",params$SRA,"/trinity_samples", sep = "") 
 
 # Path to files
-fileNames <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped.*\\d$")
+fileNames <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped.fasta$")
+
+##### WRITE CONDITION FOR SINGLE ENDED
 # write single end runs to out_file
 df <- tibble(X1 = SRA_meta2$ID,
        X2 = paste0(SRA_meta2$ID, '_rep1'),
-       X3 = fileNames[grepl("_1Unmapped", basename(fileNames))],
-       X4 = fileNames[grepl("_2Unmapped", basename(fileNames))])
+       X3 = fileNames[grepl("_1Unmapped", base::basename(fileNames))],
+       X4 = fileNames[grepl("_2Unmapped", base::basename(fileNames))])
 
 
 write.table(df, out_file, append = FALSE, sep = "\t", dec = ".",
@@ -293,17 +299,18 @@ file_create(paste0("data/", params$SRA, "/trinityOK"))
 
 # Create summary table
 or <- dir_ls(paste0("data/", params$SRA), regex = "fastq$")
-ur <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped.out.mate1$")
+ur <- dir_ls(paste0("data/", params$SRA), regex = "Unmapped.fasta$")
 tr <- dir_ls(paste0("data/", params$SRA), regex = "trinity_out_dir.Trinity.fasta$")
 tr2 <- as.numeric(system(paste0("grep -c '>' ", tr), intern = TRUE))
 
-or2 <- vector()
-for (i in seq_along(or)){
-    or2[i] <- as.numeric(system(paste0("grep -c '@' ", or[i]),
-                                intern = TRUE))
-}
+  or2 <- vector()
+  for (i in seq_along(or)){
+      or2[i] <- as.numeric(system(paste0("grep -c '@' ", or[i]),
+                                  intern = TRUE))
+  }
 
-ur2 <- vectur()
+
+ur2 <- vector()
 for (i in seq_along(ur)){
     ur2[i] <- as.numeric(system(paste0("grep -c '@' ", ur[i]),
                                 intern = TRUE))
@@ -323,7 +330,7 @@ Unmapped reads led to the identification of `r tr2` contigs longer than 1000bp.
 ```{r warning=FALSE, message=FALSE}
 if(!file_exists(paste0("data/", params$SRA, "/unicontigOK"))){
     system(paste0("~/cd-hit-v4.8.1-2019-0228/cd-hit-est -i ", tr, " -o ", 
-                  paste0("data/", params$SRA), "/uniContig.fasta", " -c 0.9 -M 120000 -T 30"))
+                  paste0("data/", params$SRA), "/uniContig.fasta", " -c 0.9 -M 120000 -T 20"))
 }
 
 file_create(paste0("data/", params$SRA, "/unicontigOK"))
@@ -349,91 +356,104 @@ file_create(paste0("data/", params$SRA, "/blastOK"))
 ```{r warning=FALSE, message=FALSE}
 ########################################
 # Read data BLAST
-f <- dir_ls(paste0("data/", params$SRA), regex = "uniContig.tab$")
-df <- read_delim(f, delim = "\t", col_names = FALSE)
-names(df) <- c("qseqid", "qlen", "sseqid", "stitle", "slen", "pident", 
-               "length", "mismatch", "gapopen", "qstart", 
-               "qend", "sstart", "send", "evalue", "bitscore",
-               "qcovhsp", "scovhsp")
-
-#Transforn the blast results
-df2 <- df %>%
-    separate(stitle, into = c("Desc", "Organism"), sep = "\\[", extra = "merge") %>%
-    mutate(Organism = str_remove(Organism, "]"),
-           Desc = str_trim(str_remove(Desc, "[^ ]*")),
-           Organism = ifelse(grepl("\\[", Organism), str_extract(Organism, "(?<=\\[).+?(?=\\])"),
-                             Organism))
-
-########################################
-# Inspect the 5 blast per query
-## Function to retrieve the firt match
-ex <- function(x, n = 1){
-    x %>%
-        arrange(desc(bitscore)) %>%
-        dplyr::slice(n)
+if(!file_exists(paste0("data/", params$SRA, "/blastparseOK"))){
+    f <- dir_ls(paste0("data/", params$SRA), regex = "uniContig.tab$")
+  df <- read_delim(f, delim = "\t", col_names = FALSE)
+  names(df) <- c("qseqid", "qlen", "sseqid", "stitle", "slen", "pident", 
+                 "length", "mismatch", "gapopen", "qstart", 
+                 "qend", "sstart", "send", "evalue", "bitscore",
+                 "qcovhsp", "scovhsp")
+  
+  #Transforn the blast results
+  df2 <- df %>%
+      separate(stitle, into = c("Desc", "Organism"), sep = "\\[", extra = "merge") %>%
+      mutate(Organism = str_remove(Organism, "]"),
+             Desc = str_trim(str_remove(Desc, "[^ ]*")),
+             Organism = ifelse(grepl("\\[", Organism), str_extract(Organism, "(?<=\\[).+?(?=\\])"),
+                               Organism))
+  
+  ########################################
+  # Inspect the 5 blast per query
+  ## Function to retrieve the firt match
+  ex <- function(x, n = 1){
+      x %>%
+          arrange(desc(bitscore)) %>%
+          dplyr::slice(n)
+  }
+  
+  # Finciotn to retrieve the organism match
+  org <- function(x){
+      x %>%
+          count(Organism, sort = TRUE)
+  }
+  
+  ## Store the data in a nested tibble
+  df4 <- df2 %>%
+      group_by(qseqid) %>%
+      nest() 
+  
+  ## Extract organisms
+  df4o <- df4 %>%
+      mutate(sORG = map(data, ~org(.x))) %>%
+      unnest(sORG)
+  
+  ## Extract the first match
+  df5 <- df4 %>%
+      mutate(FH = map(data, ~ex(.x)))
+  # saveRDS(df5, "data/EVA/NCBInrBlastParsedIntermediatResults.RDS")
+  
+  ## Unnest the first match dataset
+  df6 <- df5 %>%
+      unnest(FH)
+  
+  wip <- df2 %>%
+      filter(qseqid %in% (df2 %>%
+                          filter(grepl("virus|phage", Organism) | grepl("phage", Desc)) %>%
+                          pull(qseqid))) %>%
+      group_by(qseqid)
+  
+  library(Biostrings)
+  ss <- readDNAStringSet(paste0("data/", params$SRA, "/uniContig.fasta"))
+  names(ss) <- str_extract(names(ss), "[^ ]*")
+  sdf <- tibble(qseqid = names(ss),
+                sequence = as.character(ss))
+  
+  wip <- wip %>%
+      left_join(sdf)
+  
+  
+  ################################################################################
+  # Quantification
+  ## Create a file with viral contig sequences
+  ss2 <- ss[names(ss) %in% unique(wip$qseqid)]
+  writeXStringSet(ss2, paste0("data/", params$SRA, "/tomap.fasta"))
+  
+  ## Run salmon
+  system(paste0("/usr/share/trinity291/util/align_and_estimate_abundance.pl",
+                " --transcripts ", paste0("data/", params$SRA, "/tomap.fasta"),
+                " --seqType fq --samples_file ", 
+                paste0("data/",params$SRA,"/trinity_samples"),
+                " --est_method salmon --trinity_mode --prep_reference --output_dir ",
+                paste0("data/",params$SRA,"/salmon"), "  --thread_count 20"))
+  system(paste0("mv *_rep1 data/", params$SRA, "/"))
+  
+  ## Parse salmon output
+  sq <- dir_ls(paste0("data/",params$SRA), recurse = TRUE, regex = "quant.sf$")
+  
+  sq2 <- map_df(sq, read_tsv, .id = "SRA") %>%
+      dplyr::rename(qseqid = Name)
+  
+    write_tsv(wip, paste0("data/", params$SRA, "/results.fasta"))
 }
+file_create(paste0("data/", params$SRA, "/blastparseOK"))
 
-# Finciotn to retrieve the organism match
-org <- function(x){
-    x %>%
-        count(Organism, sort = TRUE)
-}
-
-## Store the data in a nested tibble
-df4 <- df2 %>%
-    group_by(qseqid) %>%
-    nest() 
-
-## Extract organisms
-df4o <- df4 %>%
-    mutate(sORG = map(data, ~org(.x))) %>%
-    unnest(sORG)
-
-## Extract the first match
-df5 <- df4 %>%
-    mutate(FH = map(data, ~ex(.x)))
-# saveRDS(df5, "data/EVA/NCBInrBlastParsedIntermediatResults.RDS")
-
-## Unnest the first match dataset
-df6 <- df5 %>%
-    unnest(FH)
-
-wip <- df2 %>%
-    filter(qseqid %in% (df2 %>%
-                        filter(grepl("virus|phage", Organism) | grepl("phage", Desc)) %>%
-                        pull(qseqid))) %>%
-    group_by(qseqid)
-
-library(Biostrings)
-ss <- readDNAStringSet(paste0("data/", params$SRA, "/uniContig.fasta"))
-names(ss) <- str_extract(names(ss), "[^ ]*")
-sdf <- tibble(qseqid = names(ss),
-              sequence = as.character(ss))
-
-wip <- wip %>%
-    left_join(sdf)
-
-
-################################################################################
-# Quantification
-
-
-
-
-/usr/share/trinity291/util/align_and_estimate_abundance.pl \
-    --transcripts clean/Trinity.Trinity.fasta --seqType fq \
-    --samples_file clean/samples2.txt \
-    --est_method salmon \
-    --trinity_mode --prep_reference --output_dir quantification/salmon_dir \
-    --thread_count 20
-
-
+wip <- read_tsv(paste0("data/", params$SRA, "/results.fasta"))
 datatable(wip,
 	rownames = FALSE,
     filter = "top",
     extensions = 'Buttons',
     options = list(dom = 'Brtip',
-                     buttons = c('csv', 'copy'))
+                     buttons = c('csv', 'copy')))
 
 ```
 
@@ -441,16 +461,16 @@ datatable(wip,
 
 
 ```{r warning=FALSE, message=FALSE}
-f <- paste0("data/", params$SRA, "/uniContig.fasta")
-################################################################################
-# Read fasta files in and remove the contigs that found a match
-fasta <- readDNAStringSet(f)
-names(fasta) <- str_extract(names(fasta), "[^ ]*")
-
-um <- fasta[!(names(fasta) %in% unique(df$qseqid))]
-
-xx <- vmatchPattern(DNAString("TCT"), um, max.mismatch = 1)
-
-as.data.frame(xx)
+# f <- paste0("data/", params$SRA, "/uniContig.fasta")
+# ################################################################################
+# # Read fasta files in and remove the contigs that found a match
+# fasta <- readDNAStringSet(f)
+# names(fasta) <- str_extract(names(fasta), "[^ ]*")
+# 
+# um <- fasta[!(names(fasta) %in% unique(df$qseqid))]
+# 
+# xx <- vmatchPattern(DNAString("TCT"), um, max.mismatch = 1)
+# 
+# as.data.frame(xx)
 ```
 
